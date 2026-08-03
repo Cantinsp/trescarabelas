@@ -72,8 +72,8 @@
   }
 
   const MODOS = {
-    ingreso: { label: "🚪 Portería Ingreso", color: "#27ae60" },
-    salida:  { label: "🚗 Portería Salida",  color: "#e67e22" },
+    ingreso: { label: "🏢 Recepción", color: "#27ae60" },
+    salida:  { label: "🚗 Portería Salida",  color: "#e67e22" }  // no usado,
     admin:   { label: "🖥️ Administración", color: "#2980b9" }
   };
 
@@ -87,7 +87,7 @@
       todasVisitas = snapshot.val() || {};
       renderizarBitacora();
       actualizarContadores();
-      if (modoActual === "salida") renderizarDentro();
+      if (modoActual === "salida" || modoActual === "ingreso") renderizarDentro();
     });
   }
 
@@ -95,10 +95,10 @@
     // Mostrar/ocultar secciones según modo
     const esAdmin = modoActual === "admin";
     const esIngreso = modoActual === "ingreso";
-    const esSalida = modoActual === "salida";
 
+    // En Tres Carabelas el modo ingreso incluye también la salida
     document.getElementById("seccionIngreso").style.display = esIngreso ? "block" : "none";
-    document.getElementById("seccionSalida").style.display  = esSalida  ? "block" : "none";
+    document.getElementById("seccionSalida").style.display  = esIngreso ? "block" : "none";
     document.getElementById("seccionAdmin").style.display   = esAdmin   ? "block" : "none";
     document.getElementById("seccionBitacora").style.display = "block";
 
@@ -1032,14 +1032,10 @@ tr:hover td { background: rgba(201,162,39,0.05); }
   <div class="sel-grid">
     <div class="sel-card" onclick="seleccionarModo('ingreso')">
       <div class="ico">🚪</div>
-      <h3>Portería Ingreso</h3>
-      <p>Registrar entrada de personas y vehículos</p>
+      <h3>Recepción</h3>
+      <p>Registrar ingreso y salida de visitantes</p>
     </div>
-    <div class="sel-card" onclick="seleccionarModo('salida')">
-      <div class="ico">🚗</div>
-      <h3>Portería Salida</h3>
-      <p>Registrar salida · Ver visitantes activos</p>
-    </div>
+
     <div class="sel-card" onclick="seleccionarModo('admin')">
       <div class="ico">🖥️</div>
       <h3>Administración</h3>
