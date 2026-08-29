@@ -243,7 +243,7 @@
         <thead>
           <tr>
             <th>#</th><th>Nombre</th><th>CI</th><th>Unidad</th><th>Tipo</th>
-            <th>Residente que autoriza</th><th>Placa</th><th>Ingreso</th><th>Salida</th><th>Estado</th><th>Observaciones</th>
+            <th>Residente que autoriza</th><th>Placa</th><th>Fecha</th><th>Ingreso</th><th>Salida</th><th>Estado</th><th>Observaciones</th>
           </tr>
         </thead>
         <tbody>
@@ -256,6 +256,7 @@
               <td><span class="badge badge-${v.tipo?.toLowerCase() || 'visita'}">${v.tipo||"—"}</span></td>
               <td>${v.residente || "—"}</td>
               <td>${v.placa || "—"}</td>
+              <td>${v.fechaISO ? v.fechaISO.split("-").reverse().join("/") : "—"}</td>
               <td>${v.horaIngresoTexto || "—"}</td>
               <td>${v.horaSalidaTexto || "—"}</td>
               <td><span class="estado-${v.estado === 'dentro' ? 'dentro' : 'salio'}">${v.estado === "dentro" ? "● Dentro" : "✓ Salió"}</span></td>
@@ -306,7 +307,7 @@
     const filas = entradas.map(v => [
       v.nombre, v.ci||"", v.tipo||"", v.unidad, v.residente||"",
       v.placa||"", v.empresa||"", v.horaIngresoTexto||"", v.horaSalidaTexto||"",
-      v.estado||"", v.fecha||"", v.obs||""
+      v.estado||"", (v.fechaISO ? v.fechaISO.split("-").reverse().join("/") : ""), v.obs||""
     ].map(c => `"${String(c).replace(/"/g,'""')}"`).join(","));
 
     const bom = "\uFEFF";
