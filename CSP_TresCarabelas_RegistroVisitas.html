@@ -8,7 +8,7 @@
 <!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, push, onValue, update, query, orderByChild, equalTo, get, set, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getDatabase, ref, push, onValue, update, query, orderByChild, equalTo, limitToLast, get, set, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
   // ════════════════════════════════════════════════════════
   //  CONFIGURACIÓN FIREBASE — Reemplazar con sus credenciales
@@ -83,7 +83,10 @@
   let todasVisitas = {};
 
   function escucharVisitas() {
-    onValue(refVisitas, (snapshot) => {
+    // Se limita a los últimos 300 registros para no descargar todo el histórico
+    // en cada cambio (esto es lo que causaba la lentitud con muchos registros).
+    const refVisitasReciente = query(refVisitas, limitToLast(300));
+    onValue(refVisitasReciente, (snapshot) => {
       todasVisitas = snapshot.val() || {};
       renderizarBitacora();
       actualizarContadores();
@@ -134,9 +137,13 @@
       fechaISO: ahora.toISOString().slice(0,10)
     };
 
-    await push(refVisitas, registro);
-    limpiarFormularioIngreso();
-    mostrarAlerta(`✔ Ingreso registrado: ${nombre}`, "ok");
+    try {
+      await push(refVisitas, registro);
+      limpiarFormularioIngreso();
+      mostrarAlerta(`✔ Ingreso registrado: ${nombre}`, "ok");
+    } catch (e) {
+      mostrarAlerta("❌ Error al guardar: " + e.message, "error");
+    }
   };
 
   function limpiarFormularioIngreso() {
@@ -176,12 +183,16 @@
 
   window.registrarSalida = async function(key, nombre) {
     const ahora = new Date();
-    await update(ref(db, `visitas/${CONDOMINIO}/${key}`), {
-      estado: "salió",
-      horaSalida: ahora.toISOString(),
-      horaSalidaTexto: ahora.toLocaleTimeString("es-BO", {hour:"2-digit", minute:"2-digit"})
-    });
-    mostrarAlerta(`✔ Salida registrada: ${nombre}`, "ok");
+    try {
+      await update(ref(db, `visitas/${CONDOMINIO}/${key}`), {
+        estado: "salió",
+        horaSalida: ahora.toISOString(),
+        horaSalidaTexto: ahora.toLocaleTimeString("es-BO", {hour:"2-digit", minute:"2-digit"})
+      });
+      mostrarAlerta(`✔ Salida registrada: ${nombre}`, "ok");
+    } catch (e) {
+      mostrarAlerta("❌ Error al registrar salida: " + e.message, "error");
+    }
   };
 
   // ───────────────────────────────────────────────────────
@@ -275,9 +286,17 @@
   // ───────────────────────────────────────────────────────
   //  EXPORTAR EXCEL (CSV)
   // ───────────────────────────────────────────────────────
-  window.exportarCSV = function() {
+  window.exportarCSV = async function() {
     const mes = document.getElementById("sel_mes").value;
-    const entradas = Object.values(todasVisitas)
+    let datosCompletos;
+    try {
+      const snap = await get(refVisitas);
+      datosCompletos = snap.val() || {};
+    } catch (e) {
+      mostrarAlerta("❌ No se pudo leer el histórico completo: " + e.message, "error");
+      return;
+    }
+    const entradas = Object.values(datosCompletos)
       .filter(v => !mes || v.fechaISO?.startsWith(mes))
       .sort((a,b) => new Date(a.horaIngreso) - new Date(b.horaIngreso));
 
@@ -356,10 +375,15 @@
     };
 
     // Guardar en Firebase
-    await push(ref(db, "visitas/qr_tres_carabelas"), qrData);
-    // Guardar referencia separada para QR
-    const qrRef = ref(db, "qr/tres_carabelas/" + qrId);
-    await set(qrRef, qrData);
+    try {
+      await push(ref(db, "visitas/qr_tres_carabelas"), qrData);
+      // Guardar referencia separada para QR
+      const qrRef = ref(db, "qr/tres_carabelas/" + qrId);
+      await set(qrRef, qrData);
+    } catch (e) {
+      mostrarAlerta("❌ Error al generar QR: " + e.message, "error");
+      return;
+    }
 
     qrDataActual = qrData;
 
@@ -585,8 +609,12 @@
 
   window.revocarQR = async function(k) {
     if (confirm("¿Revocar este QR? El visitante no podrá usarlo.")) {
-      await remove(ref(db, "qr/tres_carabelas/" + k));
-      mostrarAlerta("QR revocado.", "ok");
+      try {
+        await remove(ref(db, "qr/tres_carabelas/" + k));
+        mostrarAlerta("QR revocado.", "ok");
+      } catch (e) {
+        mostrarAlerta("❌ Error al revocar: " + e.message, "error");
+      }
     }
   };
 
