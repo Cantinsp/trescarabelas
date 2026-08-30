@@ -112,7 +112,11 @@
   // ───────────────────────────────────────────────────────
   //  REGISTRAR INGRESO
   // ───────────────────────────────────────────────────────
+  let enviandoIngreso = false; // evita registros duplicados por doble toque
+
   window.registrarIngreso = async function() {
+    if (enviandoIngreso) return; // ya hay un registro en curso, ignorar el toque repetido
+
     const nombre = document.getElementById("inp_nombre").value.trim();
     const ci     = document.getElementById("inp_ci").value.trim();
     const tipo   = document.getElementById("inp_tipo").value;
@@ -132,17 +136,28 @@
       nombre, ci, tipo, unidad, residente, placa, empresa, obs,
       estado: "dentro",
       horaIngreso: ahora.toISOString(),
-      horaIngresoTexto: ahora.toLocaleTimeString("es-BO", {hour:"2-digit", minute:"2-digit"}),
-      fecha: ahora.toLocaleDateString("es-BO"),
+      horaIngresoTexto: horaTextoSC(ahora),
+      fecha: fechaTextoSC(ahora),
       fechaISO: ahora.toISOString().slice(0,10)
     };
+
+    enviandoIngreso = true;
+    const btn = document.getElementById("btnRegistrarIngreso");
+    const textoOriginalBtn = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "Guardando..."; }
 
     try {
       await push(refVisitas, registro);
       limpiarFormularioIngreso();
       mostrarAlerta(`✔ Ingreso registrado: ${nombre}`, "ok");
     } catch (e) {
-      mostrarAlerta("❌ Error al guardar: " + e.message, "error");
+      // Si esto falla (sin conexión, permisos, etc.) el formulario NO se limpia
+      // a propósito, para que no se pierdan los datos ya escritos.
+      console.error("Error al guardar ingreso:", e);
+      mostrarAlerta("❌ No se pudo guardar. Revise su conexión e intente de nuevo. (" + e.message + ")", "error", 7000);
+    } finally {
+      enviandoIngreso = false;
+      if (btn) { btn.disabled = false; btn.textContent = textoOriginalBtn || "↓ REGISTRAR INGRESO"; }
     }
   };
 
@@ -150,6 +165,7 @@
     ["inp_nombre","inp_ci","inp_unidad","inp_residente","inp_placa","inp_empresa","inp_obs"]
       .forEach(id => document.getElementById(id).value = "");
     document.getElementById("inp_tipo").selectedIndex = 0;
+    document.getElementById("sugerencias").innerHTML = "";
   }
 
   // ───────────────────────────────────────────────────────
@@ -187,7 +203,7 @@
       await update(ref(db, `visitas/${CONDOMINIO}/${key}`), {
         estado: "salió",
         horaSalida: ahora.toISOString(),
-        horaSalidaTexto: ahora.toLocaleTimeString("es-BO", {hour:"2-digit", minute:"2-digit"})
+        horaSalidaTexto: horaTextoSC(ahora)
       });
       mostrarAlerta(`✔ Salida registrada: ${nombre}`, "ok");
     } catch (e) {
@@ -714,34 +730,58 @@
   // ───────────────────────────────────────────────────────
   //  ALERTAS
   // ───────────────────────────────────────────────────────
-  function mostrarAlerta(msg, tipo) {
+  function mostrarAlerta(msg, tipo, duracionMs) {
+    // Oculta el teclado del celular si estaba abierto, para que el mensaje
+    // no quede tapado por el teclado (causa de que "no se vea" el aviso).
+    if (document.activeElement && typeof document.activeElement.blur === "function") {
+      document.activeElement.blur();
+    }
     const el = document.getElementById("alerta");
     el.textContent = msg;
     el.className = "alerta " + tipo;
     el.style.display = "block";
-    setTimeout(() => el.style.display = "none", 3500);
+    setTimeout(() => el.style.display = "none", duracionMs || 3500);
   }
 
   // ───────────────────────────────────────────────────────
   //  AUTOCOMPLETADO
   // ───────────────────────────────────────────────────────
   document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("inp_nombre").addEventListener("input", async function() {
+    const inpNombre = document.getElementById("inp_nombre");
+    let debounceTimer = null;
+    inpNombre.addEventListener("input", function() {
       const val = this.value.trim();
       if (val.length < 3) { document.getElementById("sugerencias").innerHTML = ""; return; }
-      const snap = await get(refVisitas);
-      const datos = snap.val() || {};
-      const coincidencias = [...new Map(
-        Object.values(datos)
-          .filter(v => v.nombre.toLowerCase().includes(val.toLowerCase()))
-          .map(v => [v.nombre, v])
-      ).values()].slice(0,5);
+      // Pequeña espera para no recalcular en cada tecla mientras se escribe rápido.
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        // Usa los datos que la app ya mantiene en memoria (todasVisitas, actualizados
+        // en tiempo real) en vez de volver a descargar toda la base en cada letra.
+        // Esto es lo que hacía que el autocompletado se sintiera lento con señal débil.
+        const coincidencias = [...new Map(
+          Object.values(todasVisitas)
+            .filter(v => v.nombre.toLowerCase().includes(val.toLowerCase()))
+            .map(v => [v.nombre, v])
+        ).values()].slice(0,5);
 
-      document.getElementById("sugerencias").innerHTML = coincidencias.map(v => `
-        <div class="sug-item" onclick="autocompletar('${v.nombre}','${v.ci||''}','${v.unidad||''}','${v.residente||''}')">
-          <strong>${v.nombre}</strong> — ${v.unidad || ""}
-        </div>
-      `).join("");
+        document.getElementById("sugerencias").innerHTML = coincidencias.length ? (`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 10px;font-size:0.72rem;color:var(--text2);background:var(--navy3);">
+            <span>Toque para autocompletar ↓</span>
+            <span onclick="document.getElementById('sugerencias').innerHTML=''" style="cursor:pointer;padding:2px 6px;">✕</span>
+          </div>
+        ` + coincidencias.map(v => `
+          <div class="sug-item" onclick="autocompletar('${v.nombre}','${v.ci||''}','${v.unidad||''}','${v.residente||''}')">
+            <strong>${v.nombre}</strong> — ${v.unidad || ""}
+          </div>
+        `).join("")) : "";
+      }, 150);
+    });
+    // Si el guardia toca fuera del campo (por ej. para ir directo al
+    // siguiente campo) sin elegir una sugerencia, la ocultamos. El
+    // pequeño retraso deja que el "click" sobre una sugerencia se
+    // registre primero (el blur ocurre antes que el click).
+    inpNombre.addEventListener("blur", function() {
+      setTimeout(() => { document.getElementById("sugerencias").innerHTML = ""; }, 200);
     });
   });
 
@@ -881,7 +921,16 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Arial
 .btn-reg:hover { opacity: 0.88; }
 
 /* ── AUTOCOMPLETADO ── */
-#sugerencias { position: relative; }
+/* Antes esto era position:relative y empujaba hacia abajo el resto del
+   formulario (CI, Unidad, etc.), lo que hacía que un toque rápido en
+   secuencia cayera sobre una sugerencia y llenara los campos con datos
+   de una visita anterior sin que el guardia lo pidiera. Ahora flota
+   encima sin mover nada debajo. */
+#sugerencias {
+  position: absolute; left: 0; right: 0; top: 100%;
+  z-index: 50; max-height: 220px; overflow-y: auto;
+  border-radius: 0 0 8px 8px; box-shadow: 0 6px 14px rgba(0,0,0,.4);
+}
 .sug-item {
   background: var(--navy2); border: 1px solid var(--border); border-top: none;
   padding: 8px 12px; font-size: 0.82rem; cursor: pointer;
@@ -954,9 +1003,9 @@ tr:hover td { background: rgba(201,162,39,0.05); }
 
 /* ── ALERTA ── */
 .alerta {
-  display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: none; position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
   padding: 10px 22px; border-radius: 8px; font-size: 0.88rem; font-weight: 600;
-  z-index: 999; white-space: nowrap;
+  z-index: 999; white-space: nowrap; max-width: 92vw; box-shadow: 0 2px 10px rgba(0,0,0,.4);
 }
 .alerta.ok    { background: var(--green); color: #fff; }
 .alerta.error { background: var(--red); color: #fff; }
@@ -1122,7 +1171,7 @@ tr:hover td { background: rgba(201,162,39,0.05); }
         <div class="sec-header"><span>➕</span><span class="sec-title">REGISTRAR INGRESO</span></div>
         <div class="sec-body">
           <div class="form-grid">
-            <div class="form-full">
+            <div class="form-full" style="position:relative;">
               <div class="field-lbl">NOMBRE COMPLETO *</div>
               <input id="inp_nombre" class="field-inp" placeholder="Ej: Juan Pérez López" autocomplete="off">
               <div id="sugerencias"></div>
@@ -1163,7 +1212,7 @@ tr:hover td { background: rgba(201,162,39,0.05); }
             </div>
           </div>
           <div style="display:flex;gap:8px;">
-            <button class="btn-reg" onclick="registrarIngreso()" style="flex:1;">↓ REGISTRAR INGRESO</button>
+            <button id="btnRegistrarIngreso" class="btn-reg" onclick="registrarIngreso()" style="flex:1;">↓ REGISTRAR INGRESO</button>
             <button class="btn-reg" onclick="iniciarEscaneoQR()" style="flex:0 0 auto;background:#1e3170;color:#c9a227;border:1px solid #c9a227;">📷 Escanear QR</button>
           </div>
         </div>
